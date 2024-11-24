@@ -35,4 +35,4 @@ URL: https://www.jmlr.org/papers/v23/21-493.html,
 LazyData: true
 RoxygenNote: 7.2.3
 Depends: R (>= 4.0.0), data.table, kernlab
-Imports: RANN, proxy, parallel, mlpack
+Imports: RANN, proxy, parallel, mlpack, energy

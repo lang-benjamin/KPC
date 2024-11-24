@@ -366,7 +366,7 @@ KFOCI <- function(Y, X, k = kernlab::rbfdot(1/(2*stats::median(stats::dist(Y))^2
   if (.Platform$OS.type == "windows") {
     cl <- parallel::makeCluster(numCores)
     parallel::clusterEvalQ(cl, library(KPC))
-    parallel::clusterExport(cl, c("Y", "X", "k", "Knn", "estimateQFixedY"), 
+    parallel::clusterExport(cl, c("Y", "X", "k", "Knn", "estimateQFixedY"),
                             envir = environment())
     seq_Q = parallel::parLapply(cl, seq(1, p), estimateQFixedY)
   } else {
@@ -378,6 +378,8 @@ KFOCI <- function(Y, X, k = kernlab::rbfdot(1/(2*stats::median(stats::dist(Y))^2
   Q[1] = max(seq_Q)
   if (Q[1] <= 0 & stop == TRUE) return(0)
   index_max = min(which(seq_Q == Q[1]))
+  dcor_pval <- energy::dcorT.test(x = X[, index_max], y = Y)$p.value
+  if (dcor_pval < 0.1 & stop == TRUE) return(0)
   index_select[1] = index_max
   if (verbose) print(paste("Variable",index_max,"is selected"))
   count = 1
@@ -397,7 +399,7 @@ KFOCI <- function(Y, X, k = kernlab::rbfdot(1/(2*stats::median(stats::dist(Y))^2
       seq_Q = estimateQFixedYandSubX(index_left[1])
     } else {
       if (.Platform$OS.type == "windows") {
-        parallel::clusterExport(cl, c("index_select", "count", "estimateQFixedYandSubX"), 
+        parallel::clusterExport(cl, c("index_select", "count", "estimateQFixedYandSubX"),
                                 envir = environment())
         seq_Q = parallel::parLapply(cl, index_left, estimateQFixedYandSubX)
       } else {
@@ -413,7 +415,7 @@ KFOCI <- function(Y, X, k = kernlab::rbfdot(1/(2*stats::median(stats::dist(Y))^2
     if (verbose) print(paste("Variable",index_select[count],"is selected"))
   }
   if (.Platform$OS.type == "windows")
-    parallel::stopCluster(cl) 
+    parallel::stopCluster(cl)
 
   return(index_select[1:count])
 }
@@ -485,10 +487,10 @@ KPCRKHS_VS <- function(Y, X, num_features, ky = kernlab::rbfdot(1/(2*stats::medi
   if (.Platform$OS.type == "windows") {
     cl <- parallel::makeCluster(numCores)
     parallel::clusterEvalQ(cl, library(KPC))
-    parallel::clusterExport(cl, c("Y", "X", "ky", "kS", "eps", "appro", "tol", 
-                                  "KPCRKHS_numerator", "estimateQFixedY"), 
+    parallel::clusterExport(cl, c("Y", "X", "ky", "kS", "eps", "appro", "tol",
+                                  "KPCRKHS_numerator", "estimateQFixedY"),
                             envir = environment())
-    seq_Q = parallel::parLapply(cl, seq(1, p), estimateQFixedY) 
+    seq_Q = parallel::parLapply(cl, seq(1, p), estimateQFixedY)
   } else {
     seq_Q = parallel::mclapply(seq(1, p), estimateQFixedY, mc.cores = numCores)
   }
@@ -516,7 +518,7 @@ KPCRKHS_VS <- function(Y, X, num_features, ky = kernlab::rbfdot(1/(2*stats::medi
       seq_Q = estimateQFixedYandSubX(index_left[1])
     } else {
       if (.Platform$OS.type == "windows") {
-        parallel::clusterExport(cl, c("index_select", "count", "estimateQFixedYandSubX"), 
+        parallel::clusterExport(cl, c("index_select", "count", "estimateQFixedYandSubX"),
                                 envir = environment())
         seq_Q = parallel::parLapply(cl, index_left, estimateQFixedYandSubX)
       } else {
