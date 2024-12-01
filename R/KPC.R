@@ -379,7 +379,7 @@ KFOCI <- function(Y, X, k = kernlab::rbfdot(1/(2*stats::median(stats::dist(Y))^2
   if (Q[1] <= 0 & stop == TRUE) return(0)
   index_max = min(which(seq_Q == Q[1]))
   dcor_pval <- energy::dcorT.test(x = X[, index_max], y = Y)$p.value
-  if (!(dcor_pval < 0.1) & stop == TRUE) return(0)
+  if (!(dcor_pval < 0.05) & stop == TRUE) return(0)
   index_select[1] = index_max
   if (verbose) print(paste("Variable",index_max,"is selected"))
   count = 1
