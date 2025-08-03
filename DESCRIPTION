@@ -37,3 +37,4 @@ LazyData: true
 RoxygenNote: 7.2.3
 Depends: R (>= 4.0.0), data.table, kernlab
 Imports: RANN, proxy, parallel, mlpack
+Suggests: energy
