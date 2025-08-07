@@ -34,7 +34,7 @@ URL: https://www.jmlr.org/papers/v23/21-493.html,
         https://arxiv.org/abs/2012.14804,
         https://github.com/zh2395/KPC
 LazyData: true
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.1
 Depends: R (>= 4.0.0), data.table, kernlab
 Imports: RANN, proxy, parallel, mlpack
 Suggests: energy

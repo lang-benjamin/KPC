@@ -7,10 +7,14 @@
 KFOCI(
   Y,
   X,
+  Z = NULL,
   k = kernlab::rbfdot(1/(2 * stats::median(stats::dist(Y))^2)),
   Knn = min(ceiling(NROW(Y)/20), 20),
   num_features = NULL,
   stop = TRUE,
+  first_test = TRUE,
+  first_test_alpha = 0.1,
+  first_test_R = 500,
   numCores = parallel::detectCores(),
   verbose = FALSE
 )
@@ -19,6 +23,8 @@ KFOCI(
 \item{Y}{a matrix of responses (n by dy)}
 
 \item{X}{a matrix of predictors (n by dx)}
+
+\item{Z}{a matrix of predictors that should be pre-conditioned on (n by dz). NULL (default) if no pre-conditioning should be done.}
 
 \item{k}{a function \eqn{k(y, y')} of class \code{kernel}. It can be the kernel implemented in \code{kernlab} e.g., Gaussian kernel: \code{rbfdot(sigma = 1)}, linear kernel: \code{vanilladot()}.}
 
@@ -29,6 +35,12 @@ case it will be set equal to dx. If \code{stop == TRUE} (see below), then num_fe
 
 \item{stop}{If \code{stop == TRUE}, then the automatic stopping criterion (stops at the first instance of negative Tn, as mentioned in the paper) will be implemented and continued till \code{num_features} many variables are selected. If \code{stop == FALSE} then exactly \code{num_features} many variables are selected.}
 
+\item{first_test}{Logical; whether to perform an independence test on the first selected variable (default `TRUE`). This is only relevant if Z = NULL.}
+
+\item{first_test_alpha}{Significance level for the independence test (default `0.10`).}
+
+\item{first_test_R}{Number of permutations to use in the independence test (default `500`).}
+
 \item{numCores}{number of cores that are going to be used for parallelizing the process.}
 
 \item{verbose}{whether to print each selected variables during the forward stepwise algorithm}
@@ -38,19 +50,24 @@ The algorithm returns a vector of the indices from 1,...,dx of the selected vari
 }
 \description{
 Variable selection with KPC using directed K-NN graph or minimum spanning tree (MST)
+Optionally performs an independence test before accepting the first variable.
 }
 \details{
 A stepwise forward selection of variables using KPC. At each step it selects the \eqn{X_j} that maximizes
 \eqn{\hat{\rho^2}(Y,X_j |}selected \eqn{X_i)}.
 It is suggested to normalize the predictors before applying KFOCI.
 Euclidean distance is used for computing the K-NN graph and the MST.
+
+
+If `Z` is specified, those features are included first and bypass the independence test. When `first_test` is enabled and `Z` is NULL,
+the function applies a permutation-based independence test (via \pkg{energy}) before accepting the first variable. If the p-value exceeds `first_test_alpha`, selection stops and the function returns `0`.
 }
 \examples{
 n = 200
 p = 10
 X = matrix(rnorm(n * p), ncol = p)
 Y = X[, 1] * X[, 2] + sin(X[, 1] * X[, 3])
-KFOCI(Y, X, kernlab::rbfdot(1), Knn=1, numCores=1)
+KFOCI(Y, X, k=kernlab::rbfdot(1), Knn=1, numCores=1)
 # 1 2 3
 }
 \seealso{

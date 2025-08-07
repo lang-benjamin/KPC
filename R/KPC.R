@@ -327,13 +327,13 @@ KPCRKHS = function(Y, X = NULL, Z, ky = kernlab::rbfdot(1/(2*stats::median(stats
 #'
 #' @param Y a matrix of responses (n by dy)
 #' @param X a matrix of predictors (n by dx)
+#' @param Z a matrix of predictors that should be pre-conditioned on (n by dz). NULL (default) if no pre-conditioning should be done.
 #' @param k a function \eqn{k(y, y')} of class \code{kernel}. It can be the kernel implemented in \code{kernlab} e.g., Gaussian kernel: \code{rbfdot(sigma = 1)}, linear kernel: \code{vanilladot()}.
 #' @param Knn a positive integer indicating the number of nearest neighbor; or "MST". The suggested choice of Knn is 0.05n for samples up to a few hundred observations. For large n, the suggested Knn is sublinear in n. That is, it may grow slower than any linear function of n. The computing time is approximately linear in Knn. A smaller Knn takes less time.
 #' @param num_features the number of variables to be selected, cannot be larger than dx. The default value is NULL and in that
 #'   case it will be set equal to dx. If \code{stop == TRUE} (see below), then num_features is the maximal number of variables to be selected.
 #' @param stop If \code{stop == TRUE}, then the automatic stopping criterion (stops at the first instance of negative Tn, as mentioned in the paper) will be implemented and continued till \code{num_features} many variables are selected. If \code{stop == FALSE} then exactly \code{num_features} many variables are selected.
-#' @param force_features Optional integer vector of predictor indices to force into the selection set.
-#' @param first_test Logical; whether to perform an independence test on the first selected variable (default `TRUE`).
+#' @param first_test Logical; whether to perform an independence test on the first selected variable (default `TRUE`). This is only relevant if Z = NULL.
 #' @param first_test_alpha Significance level for the independence test (default `0.10`).
 #' @param first_test_R Number of permutations to use in the independence test (default `500`).
 #' @param numCores number of cores that are going to be used for parallelizing the process.
@@ -341,7 +341,7 @@ KPCRKHS = function(Y, X = NULL, Z, ky = kernlab::rbfdot(1/(2*stats::median(stats
 #' @export
 #' @return The algorithm returns a vector of the indices from 1,...,dx of the selected variables in the same order that they were selected. The variables at the front are expected to be more informative in predicting Y.
 #' @details
-#' If `force_features` is specified, those features are included first and bypass the independence test. When `first_test` is enabled and `force_features` is empty,
+#' If `Z` is specified, those features are included first and bypass the independence test. When `first_test` is enabled and `Z` is NULL,
 #' the function applies a permutation-based independence test (via \pkg{energy}) before accepting the first variable. If the p-value exceeds `first_test_alpha`, selection stops and the function returns `0`.
 #' @seealso \code{\link{KPCgraph}}, \code{\link{KPCRKHS}}, \code{\link{KPCRKHS_VS}}
 #' @examples
@@ -349,15 +349,14 @@ KPCRKHS = function(Y, X = NULL, Z, ky = kernlab::rbfdot(1/(2*stats::median(stats
 #' p = 10
 #' X = matrix(rnorm(n * p), ncol = p)
 #' Y = X[, 1] * X[, 2] + sin(X[, 1] * X[, 3])
-#' KFOCI(Y, X, kernlab::rbfdot(1), Knn=1, numCores=1)
+#' KFOCI(Y, X, k=kernlab::rbfdot(1), Knn=1, numCores=1)
 #' # 1 2 3
 # code modified from Azadkia, M. and Chatterjee, S. (2019). A simple measure of conditional dependence.
-KFOCI <- function(Y, X,
+KFOCI <- function(Y, X, Z = NULL,
                   k = kernlab::rbfdot(1 / (2 * stats::median(stats::dist(Y))^2)),
                   Knn = min(ceiling(NROW(Y) / 20), 20),
                   num_features = NULL,
                   stop = TRUE,
-                  force_features = NULL,
                   first_test = TRUE,
                   first_test_alpha = 0.10,
                   first_test_R = 500,
@@ -366,109 +365,113 @@ KFOCI <- function(Y, X,
   
   if (!is.matrix(X)) X <- as.matrix(X)
   if (!is.matrix(Y)) Y <- as.matrix(Y)
-  if (nrow(Y) != nrow(X)) stop("Y and X must have the same number of rows.")
-  
+  if (!is.null(Z) && !is.matrix(Z)) Z <- as.matrix(Z)
+  n <- nrow(Y)
+  if (nrow(X) != n || (!is.null(Z) && nrow(Z) != n))
+    stop("Y, X (and Z, if supplied) must have the same number of rows")
   if (is.null(num_features)) num_features <- ncol(X)
-  if (num_features > ncol(X))
-    stop("num_features cannot exceed number of predictors.")
-  if (floor(num_features) != num_features || num_features <= 0)
-    stop("num_features must be a positive integer.")
-  
+  if (num_features > ncol(X)) stop("Number of features should not be larger than maximum number of original features.")
+  if ((floor(num_features) != num_features) || (num_features <= 0)) stop("Number of features should be a positive integer.")
   if (Knn != "MST") {
-    if (floor(Knn) != Knn || Knn <= 0)
-      stop("Knn must be a positive integer or 'MST'.")
-    if (Knn + 2 > nrow(X))
-      stop("Sample size must be > Knn + 1.")
+    if ((floor(Knn) != Knn) || (Knn <= 0)) stop("Knn should be a positive integer or the string MST.")
+    if (Knn + 2 > nrow(X)) stop("n should be greater than Knn + 1")
   }
   
-  if (!is.null(force_features)) {
-    force_features <- unique(as.integer(force_features))
-    if (any(force_features < 1 | force_features > ncol(X)))
-      stop("Indices in force_features must be between 1 and ncol(X).")
-    if (length(force_features) > num_features)
-      stop("length(force_features) cannot exceed num_features.")
+  # Define augmented design matrix
+  if (is.null(Z)) {
+    X_aug <- X
+    forced_idx <- integer(0)
   } else {
-    force_features <- integer(0)
+    X_aug <- cbind(Z, X) # cols 1:dz are fixed
+    forced_idx <- seq_len(ncol(Z))
   }
+  p_aug <- ncol(X_aug)
+  p <- ncol(X) # do we need this?
+  Q <- rep(0, num_features)
+
+  Tn <- function(cols)
+    TnKnn(Y, X_aug[, cols, drop = FALSE], k, Knn)
   
+  # Initialize cluster
   cl <- NULL
   if (.Platform$OS.type == "windows") {
     cl <- parallel::makeCluster(numCores)
-    on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
     parallel::clusterEvalQ(cl, library(KPC))
+    parallel::clusterExport(cl, c("Y", "X_aug", "k", "Knn", "TnKnn"), envir = environment())
   }
   
-  p <- ncol(X)
-  Q <- rep(0, num_features)
-  index_select <- rep(0, num_features)
-  count <- length(force_features)
-  
-  if (count > 0) {
-    index_select[1:count] <- force_features
-    Q[count] <- TnKnn(Y, X[, force_features, drop = FALSE], k, Knn)
-    if (verbose) message("Pre-selected variables: ", paste(force_features, collapse = ", "))
-    if (count == num_features) return(index_select)
-  } else {
-    estimateQFixedY <- function(id) TnKnn(Y, X[, id], k, Knn)
-    
+  # Helper function for loop
+  eval_Tn <- function(idx, idx_selected, ccount) {
     if (.Platform$OS.type == "windows") {
-      parallel::clusterExport(cl, c("Y", "X", "k", "Knn", "estimateQFixedY"), envir = environment())
-      seq_Q <- parallel::parLapply(cl, seq_len(p), estimateQFixedY)
+      parallel::clusterExport(cl, c("idx_selected", "ccount"), envir = environment())
+      parallel::parLapply(cl, idx, function(j, idx_selected, ccount) {
+        cols <- c(idx_selected[seq_len(ccount)], j)
+        Tn(cols)
+      }, idx_selected = idx_selected, ccount = ccount)
     } else {
-      seq_Q <- parallel::mclapply(seq_len(p), estimateQFixedY, mc.cores = numCores)
+      parallel::mclapply(idx, function(j) {
+        cols <- c(idx_selected[seq_len(ccount)], j)
+        Tn(cols)
+      }, mc.cores = numCores)
     }
-    
-    seq_Q <- unlist(seq_Q)
-    Q[1] <- max(seq_Q)
-    if (Q[1] <= 0 && stop) return(0)
-    index_max <- min(which(seq_Q == Q[1]))
-    
-    ## ---- Optional independence test via energy ----
-    if (first_test) {
-      if (!requireNamespace("energy", quietly = TRUE)) {
-        warning("Skipping independence test: package 'energy' not installed.")
-      } else {
-        Q1_pval <- energy::indep.test(
-          x = X[, index_max],
-          y = Y,
-          R = first_test_R
-        )$p.value
-        if (verbose) message("Independence test p = ", round(Q1_pval, 4))
-        if (Q1_pval > first_test_alpha) return(0)
-      }
-    }
-    
-    index_select[1] <- index_max
-    count <- 1
-    if (verbose) message("Variable ", index_max, " is selected")
   }
   
-  while (count < num_features) {
-    index_left <- setdiff(seq_len(p), index_select[1:count])
-    estimateQFixedYandSubX <- function(id) {
-      TnKnn(Y, X[, c(index_select[1:count], id)], k, Knn)
-    }
+  # Forward selection loop
+  index_select <- rep(0, num_features + length(forced_idx))
+  if (length(forced_idx) > 0) 
+    index_select[seq_along(forced_idx)] <- forced_idx
+  count <- length(forced_idx) # size of active set so far
+  last_Q  <- if (count > 0) Tn(index_select[seq_len(count)]) else -Inf 
+  
+  if (verbose && count > 0)
+    cat(sprintf("Forced covariate(s) %s chosen, T = %.3f\n",
+                paste(forced_idx, collapse = ","), last_Q))
+  
+  repeat {
+    if (count - length(forced_idx) >= num_features) break
+    index_left <- setdiff(seq_len(p_aug), index_select[seq_len(count)])
+    if (!length(index_left)) break
     
-    if (length(index_left) == 1) {
-      seq_Q <- estimateQFixedYandSubX(index_left)
-    } else {
-      if (.Platform$OS.type == "windows") {
-        parallel::clusterExport(cl, c("index_select", "count", "estimateQFixedYandSubX"), envir = environment())
-        seq_Q <- parallel::parLapply(cl, index_left, estimateQFixedYandSubX)
-      } else {
-        seq_Q <- parallel::mclapply(index_left, estimateQFixedYandSubX, mc.cores = numCores)
+    seq_Q <- unlist(eval_Tn(index_left, index_select, count))
+    
+    j_star <- index_left[which.max(seq_Q)]
+    best_Q <- max(seq_Q)
+    
+    # Optional independence test
+    if (count == 0 && first_test && is.null(Z)) {
+      if (!requireNamespace("energy", quietly = TRUE))
+        stop("Package 'energy' required for 'test_first = TRUE'")
+      
+      pval_first <- energy::indep.test(
+        x = X[, j_star, drop = FALSE],
+        y = Y,
+        R = first_test_R)$p.value
+      
+      if (verbose)
+        cat(sprintf("Marginal indep. p-value for X%d vs Y = %.4f\n",
+                    j_star, pval_first))
+      
+      if (pval_first > first_test_alpha) {
+        if (verbose)
+          cat(sprintf("p-value > %.2f, aborting with no selection\n",
+                      first_test_alpha))
+        return(integer(0))
       }
-      seq_Q <- unlist(seq_Q)
     }
     
-    Q[count + 1] <- max(seq_Q)
-    index_max <- min(which(seq_Q == Q[count + 1]))
-    if (stop && Q[count + 1] <= Q[count]) break
-    index_select[count + 1] <- index_left[index_max]
+    if (best_Q <= last_Q && stop) break
     count <- count + 1
-    if (verbose) message("Variable ", index_select[count], " is selected")
+    index_select[count] <- j_star
+    last_Q <- best_Q
+    if (verbose)
+      cat(sprintf("Added X%-2d, T = %.3f\n",
+                  j_star - length(forced_idx), last_Q))
   }
-  index_select[1:count]
+  
+  in_X <- setdiff(index_select[seq_len(count)], forced_idx) # drop columns of Z
+  selected <- if (length(forced_idx) > 0) in_X - length(forced_idx) else in_X
+  return(selected)
 }
 
 #' Variable selection with RKHS estimator
